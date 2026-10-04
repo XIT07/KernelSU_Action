@@ -206,26 +206,37 @@ jobs:
         run: bash scripts/kernelsu.sh
 
       # --------------------------------------------------------------------
-      # FIX 3: Patch KernelSU source for legacy kernel includes
+      # FIX 3: Patch KernelSU source and create dummy headers for legacy kernel
       #
-      # linux/sched/signal.h was split from linux/sched.h in Linux 4.11.
-      # On a 4.4 tree, it does not exist. We must replace it with
-      # linux/sched.h to prevent a fatal compilation error.
+      # Modern KernelSU code expects headers that were split out in Linux 4.11+.
+      # On a 4.4 tree, these headers do not exist. We explicitly patch the
+      # known offending file and create dummy headers as a fallback.
       # --------------------------------------------------------------------
       - name: Fix legacy kernel includes for KernelSU
         run: |
           KERNEL_DIR="$WORKSPACE/android-kernel"
           KSU_DIR="$KERNEL_DIR/drivers/kernelsu"
-          if [ -d "$KSU_DIR" ]; then
-            echo "Patching KernelSU for legacy kernel includes..."
-            # Replace the missing header with the correct one for 4.4
-            find "$KSU_DIR" -type f \( -name "*.c" -o -name "*.h" \) -exec \
-              sed -i 's|#include <linux/sched/signal.h>|#include <linux/sched.h>|g' {} +
-            echo "Patched includes successfully."
+          TARGET_FILE="$KSU_DIR/hook/setuid_hook.c"
+          
+          if [ -f "$TARGET_FILE" ]; then
+            echo "Patching $TARGET_FILE for legacy kernel includes..."
+            sed -i 's|#include <linux/sched/signal.h>|#include <linux/sched.h>|g' "$TARGET_FILE"
+            echo "Patched setuid_hook.c successfully."
           else
-            echo "::error::KernelSU directory not found at $KSU_DIR"
+            echo "::error::Target file not found at $TARGET_FILE"
             exit 1
           fi
+
+          # Create dummy headers for maximum compatibility
+          mkdir -p "$KERNEL_DIR/include/linux/sched"
+          for header in signal.h task.h mm.h; do
+            if [ ! -f "$KERNEL_DIR/include/linux/sched/$header" ]; then
+              echo "#include <linux/sched.h>" > "$KERNEL_DIR/include/linux/sched/$header"
+              echo "Created dummy header: include/linux/sched/$header"
+            fi
+          done
+          
+          echo "Patched includes successfully."
 
       - name: Apply kernel patches
         run: bash scripts/patches.sh all
