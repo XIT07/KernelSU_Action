@@ -174,7 +174,7 @@ jobs:
                "$KERNEL_DIR/include/linux/compiler_types.h"
             echo "Created include/linux/compiler_types.h from compiler.h"
           else
-            echo "compiler_types.h already present, or compiler.h missing — skipping"
+            echo "compiler_types.h already present, or compiler.h missing - skipping"
           fi
 
           mkdir -p "$KERNEL_DIR/include/generated/uapi/linux"
@@ -185,7 +185,7 @@ jobs:
             echo "Mirrored compiler_types.h into include/generated/uapi/linux"
           fi
 
-          if test -f "$KERNEL_DIR/include/linux/compiler_types.h"; then
+          if [ -f "$KERNEL_DIR/include/linux/compiler_types.h" ]; then
             echo "OK: compiler_types.h is in place"
           else
             echo "::error::Failed to create compiler_types.h"
@@ -206,37 +206,43 @@ jobs:
         run: bash scripts/kernelsu.sh
 
       # --------------------------------------------------------------------
-      # FIX 3: Patch KernelSU source and create dummy headers for legacy kernel
+      # FIX 3: Patch KernelSU source and create compat headers for legacy kernel
       #
-      # Modern KernelSU code expects headers that were split out in Linux 4.11+.
-      # On a 4.4 tree, these headers do not exist. We explicitly patch the
-      # known offending file and create dummy headers as a fallback.
+      # <linux/sched/signal.h>, <linux/sched/task.h> and <linux/sched/mm.h>
+      # were split out of <linux/sched.h> in Linux 4.11+ and do not exist in
+      # a 4.4 tree. The forwarding headers below make every KernelSU include
+      # resolve. The sed rewrite of setuid_hook.c is best-effort only: the
+      # file layout differs between KernelSU-Next refs, so a missing file is
+      # NOT an error.
       # --------------------------------------------------------------------
       - name: Fix legacy kernel includes for KernelSU
+        if: env.KSU_VARIANT != 'none'
         run: |
           KERNEL_DIR="$WORKSPACE/android-kernel"
           KSU_DIR="$KERNEL_DIR/drivers/kernelsu"
           TARGET_FILE="$KSU_DIR/hook/setuid_hook.c"
-          
-          if [ -f "$TARGET_FILE" ]; then
-            echo "Patching $TARGET_FILE for legacy kernel includes..."
-            sed -i 's|#include <linux/sched/signal.h>|#include <linux/sched.h>|g' "$TARGET_FILE"
-            echo "Patched setuid_hook.c successfully."
-          else
-            echo "::error::Target file not found at $TARGET_FILE"
+
+          if [ ! -d "$KSU_DIR" ]; then
+            echo "::error::KernelSU source not found at $KSU_DIR"
             exit 1
           fi
 
-          # Create dummy headers for maximum compatibility
+          if [ -f "$TARGET_FILE" ]; then
+            sed -i 's|#include <linux/sched/signal.h>|#include <linux/sched.h>|g' "$TARGET_FILE"
+            echo "Patched setuid_hook.c to include linux/sched.h directly"
+          else
+            echo "setuid_hook.c not found at this ref - skipping sed, compat headers will cover it"
+          fi
+
           mkdir -p "$KERNEL_DIR/include/linux/sched"
           for header in signal.h task.h mm.h; do
             if [ ! -f "$KERNEL_DIR/include/linux/sched/$header" ]; then
               echo "#include <linux/sched.h>" > "$KERNEL_DIR/include/linux/sched/$header"
-              echo "Created dummy header: include/linux/sched/$header"
+              echo "Created compat header: include/linux/sched/$header"
             fi
           done
-          
-          echo "Patched includes successfully."
+
+          echo "Legacy include fixes applied."
 
       - name: Apply kernel patches
         run: bash scripts/patches.sh all
@@ -318,22 +324,11 @@ jobs:
             echo "packed ${name}.zip"
           done
           for f in artifacts/*/Image* artifacts/*/boot.img artifacts/*/dtbo.img; do
-            [ -f "$f" ] && cp "$f" release/
+            if [ -f "$f" ]; then
+              cp "$f" release/
+            fi
           done
           ls -la release/
 
       - name: Create release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
-        with:
-          tag_name: ${{ needs.build.outputs.device }}-${{ needs.build.outputs.build_time }}
-          name: ${{ needs.build.outputs.device }} · ${{ needs.build.outputs.ksu_name }} · ${{ needs.build.outputs.build_time }}
-          body: |
-            | | |
-            | --- | --- |
-            | Device | `${{ needs.build.outputs.device }}` |
-            | Kernel | `${{ needs.build.outputs.kernel_release }}` |
-            | KernelSU | `${{ needs.build.outputs.ksu_name }}` @ `${{ needs.build.outputs.ksu_version }}` |
-            | SUSFS | `${{ needs.build.outputs.susfs_version || 'not applied' }}` |
-
-            Flash the AnyKernel3 zip from a custom recovery.
-          files: release/*
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a
