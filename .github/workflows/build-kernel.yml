@@ -212,9 +212,12 @@ jobs:
           fi
 
           # 3) sanity check — fail early with a clear message if anything is off
-          test -f "$KERNEL_DIR/include/linux/compiler_types.h" \
-            && echo "OK: compiler_types.h is in place" \
-            || { echo "::error::Failed to create compiler_types.h"; exit 1; }
+          if test -f "$KERNEL_DIR/include/linux/compiler_types.h"; then
+            echo "OK: compiler_types.h is in place"
+          else
+            echo "::error::Failed to create compiler_types.h"
+            exit 1
+          fi
 
       - name: Install KernelSU
         if: env.KSU_VARIANT != 'none'
