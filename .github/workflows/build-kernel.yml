@@ -171,6 +171,51 @@ jobs:
       - name: Fetch kernel source
         run: bash scripts/source.sh
 
+      # --------------------------------------------------------------------
+      # FIX: Create linux/compiler_types.h for kernels older than 4.14
+      #
+      # KernelSU-Next's runtime code (drivers/kernelsu/runtime/ksud.h) includes
+      # <linux/compiler_types.h>, which was introduced in Linux 4.14.8. On a
+      # 4.4.x tree (like the Samsung Exynos 7885 / A8 2018 / jackpotlte) this
+      # file does not exist, causing:
+      #   fatal error: 'linux/compiler_types.h' file not found
+      #
+      # The type definitions that were later split into compiler_types.h still
+      # live inside compiler.h on 4.4, so copying it is a safe, standard
+      # backport. The guard makes the step idempotent and non-destructive.
+      # --------------------------------------------------------------------
+      - name: Fix missing headers for legacy kernel
+        run: |
+          KERNEL_DIR="$WORKSPACE/android-kernel"
+          if [ ! -d "$KERNEL_DIR" ]; then
+            echo "::error::Kernel source not found at $KERNEL_DIR"
+            exit 1
+          fi
+
+          # 1) backport linux/compiler_types.h from linux/compiler.h
+          if [ -f "$KERNEL_DIR/include/linux/compiler.h" ] && \
+             [ ! -f "$KERNEL_DIR/include/linux/compiler_types.h" ]; then
+            cp "$KERNEL_DIR/include/linux/compiler.h" \
+               "$KERNEL_DIR/include/linux/compiler_types.h"
+            echo "Created include/linux/compiler_types.h from compiler.h"
+          else
+            echo "compiler_types.h already present, or compiler.h missing — skipping"
+          fi
+
+          # 2) also provide the generated uapi variant if the tree expects it
+          mkdir -p "$KERNEL_DIR/include/generated/uapi/linux"
+          if [ ! -f "$KERNEL_DIR/include/generated/uapi/linux/compiler_types.h" ] && \
+             [ -f "$KERNEL_DIR/include/linux/compiler_types.h" ]; then
+            cp "$KERNEL_DIR/include/linux/compiler_types.h" \
+               "$KERNEL_DIR/include/generated/uapi/linux/compiler_types.h"
+            echo "Mirrored compiler_types.h into include/generated/uapi/linux"
+          fi
+
+          # 3) sanity check — fail early with a clear message if anything is off
+          test -f "$KERNEL_DIR/include/linux/compiler_types.h" \
+            && echo "OK: compiler_types.h is in place" \
+            || { echo "::error::Failed to create compiler_types.h"; exit 1; }
+
       - name: Install KernelSU
         if: env.KSU_VARIANT != 'none'
         run: bash scripts/kernelsu.sh
