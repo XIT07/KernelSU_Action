@@ -194,12 +194,6 @@ jobs:
 
       # --------------------------------------------------------------------
       # FIX 2: Set Android version environment variables for sdcardfs Kconfig
-      #
-      # The kernel's fs/sdcardfs/Kconfig sources a path that depends on
-      # $ANDROID_MAJOR_VERSION. Without it set, the path resolves to itself,
-      # causing a recursive inclusion error. The Makefile derives this from
-      # PLATFORM_VERSION and ANDROID_VERSION, which are not set by default
-      # in this CI environment.
       # --------------------------------------------------------------------
       - name: Set Android version for legacy kernel
         run: |
@@ -210,6 +204,28 @@ jobs:
       - name: Install KernelSU
         if: env.KSU_VARIANT != 'none'
         run: bash scripts/kernelsu.sh
+
+      # --------------------------------------------------------------------
+      # FIX 3: Patch KernelSU source for legacy kernel includes
+      #
+      # linux/sched/signal.h was split from linux/sched.h in Linux 4.11.
+      # On a 4.4 tree, it does not exist. We must replace it with
+      # linux/sched.h to prevent a fatal compilation error.
+      # --------------------------------------------------------------------
+      - name: Fix legacy kernel includes for KernelSU
+        run: |
+          KERNEL_DIR="$WORKSPACE/android-kernel"
+          KSU_DIR="$KERNEL_DIR/drivers/kernelsu"
+          if [ -d "$KSU_DIR" ]; then
+            echo "Patching KernelSU for legacy kernel includes..."
+            # Replace the missing header with the correct one for 4.4
+            find "$KSU_DIR" -type f \( -name "*.c" -o -name "*.h" \) -exec \
+              sed -i 's|#include <linux/sched/signal.h>|#include <linux/sched.h>|g' {} +
+            echo "Patched includes successfully."
+          else
+            echo "::error::KernelSU directory not found at $KSU_DIR"
+            exit 1
+          fi
 
       - name: Apply kernel patches
         run: bash scripts/patches.sh all
