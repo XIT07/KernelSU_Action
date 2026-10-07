@@ -241,6 +241,12 @@ jobs:
               echo "Created compat header: include/linux/sched/$header"
             fi
           done
+          
+          # Add ALIGN_DOWN macro for kernels older than 4.11
+          if ! grep -q "ALIGN_DOWN" "$KERNEL_DIR/include/linux/kernel.h"; then
+            sed -i '/#define ALIGN(/a #define ALIGN_DOWN(x, a)\t__ALIGN_KERNEL((x) - ((a) - 1), (a))' "$KERNEL_DIR/include/linux/kernel.h"
+            echo "Added ALIGN_DOWN macro to include/linux/kernel.h"
+          fi
 
           echo "Legacy include fixes applied."
 
