@@ -157,9 +157,6 @@ jobs:
       - name: Fetch kernel source
         run: bash scripts/source.sh
 
-      # --------------------------------------------------------------------
-      # FIX 1: Create linux/compiler_types.h for kernels older than 4.14
-      # --------------------------------------------------------------------
       - name: Fix missing headers for legacy kernel
         run: |
           KERNEL_DIR="$WORKSPACE/android-kernel"
@@ -192,9 +189,6 @@ jobs:
             exit 1
           fi
 
-      # --------------------------------------------------------------------
-      # FIX 2: Set Android version environment variables for sdcardfs Kconfig
-      # --------------------------------------------------------------------
       - name: Set Android version for legacy kernel
         run: |
           echo "PLATFORM_VERSION=9" >> "$GITHUB_ENV"
@@ -205,9 +199,6 @@ jobs:
         if: env.KSU_VARIANT != 'none'
         run: bash scripts/kernelsu.sh
 
-      # --------------------------------------------------------------------
-      # FIX 3: Patch KernelSU source and create compat headers for legacy kernel
-      # --------------------------------------------------------------------
       - name: Fix legacy kernel includes for KernelSU
         if: env.KSU_VARIANT != 'none'
         run: |
@@ -235,7 +226,6 @@ jobs:
             fi
           done
 
-          # Add ALIGN_DOWN macro for kernels older than 4.11
           if ! grep -q "ALIGN_DOWN" "$KERNEL_DIR/include/linux/kernel.h"; then
             sed -i '/#define ALIGN(/a #define ALIGN_DOWN(x, a)\t__ALIGN_KERNEL((x) - ((a) - 1), (a))' "$KERNEL_DIR/include/linux/kernel.h"
             echo "Added ALIGN_DOWN macro to include/linux/kernel.h"
@@ -243,36 +233,31 @@ jobs:
 
           echo "Legacy include fixes applied."
 
-      # --------------------------------------------------------------------
-      # FIX 4: Disable selinux_hide on 4.4 (uses __nocfi and APIs not present)
-      # --------------------------------------------------------------------
       - name: Disable selinux_hide for legacy 4.4 kernel
         if: env.KSU_VARIANT != 'none'
         run: |
           KERNEL_DIR="$WORKSPACE/android-kernel"
           KSU_DIR="$KERNEL_DIR/drivers/kernelsu"
 
-          # Remove selinux_hide.o from Kbuild so it is not compiled
           if [ -f "$KSU_DIR/Kbuild" ]; then
             sed -i '/selinux_hide\.o/d' "$KSU_DIR/Kbuild"
             echo "Removed selinux_hide.o from Kbuild"
           fi
 
-          # Stub the public API so other files still link
           if [ -f "$KSU_DIR/feature/selinux_hide.h" ]; then
-            cat > "$KSU_DIR/feature/selinux_hide.h" << 'EOF'
-#ifndef __KSU_H_SELINUX_HIDE
-#define __KSU_H_SELINUX_HIDE
-
-/* Disabled on kernel 4.4 – feature needs newer APIs (__nocfi, etc.) */
-static inline void ksu_selinux_hide_init(void) {}
-static inline void ksu_selinux_hide_exit(void) {}
-static inline void ksu_selinux_hide_drop_backup_if_unused(void) {}
-static inline void ksu_selinux_hide_handle_second_stage(void) {}
-static inline void ksu_selinux_hide_handle_post_fs_data(void) {}
-
-#endif
-EOF
+            printf '%s\n' \
+              '#ifndef __KSU_H_SELINUX_HIDE' \
+              '#define __KSU_H_SELINUX_HIDE' \
+              '' \
+              '/* Disabled on kernel 4.4 - feature needs newer APIs */' \
+              'static inline void ksu_selinux_hide_init(void) {}' \
+              'static inline void ksu_selinux_hide_exit(void) {}' \
+              'static inline void ksu_selinux_hide_drop_backup_if_unused(void) {}' \
+              'static inline void ksu_selinux_hide_handle_second_stage(void) {}' \
+              'static inline void ksu_selinux_hide_handle_post_fs_data(void) {}' \
+              '' \
+              '#endif' \
+              > "$KSU_DIR/feature/selinux_hide.h"
             echo "Stubbed selinux_hide.h for 4.4 compatibility"
           fi
 
@@ -302,7 +287,7 @@ EOF
             echo "--- Last 80 lines of build.log ---"
             tail -n 80 "$WORKSPACE/build.log" || true
             echo ""
-            echo "--- Lines containing 'error:' ---"
+            echo "--- Lines containing error: ---"
             grep -n -i "error:" "$WORKSPACE/build.log" | tail -n 40 || true
             echo ""
             grep -n -i "error:\|Error:\|fatal error\|undefined reference\|No such file" "$WORKSPACE/build.log" > "$WORKSPACE/build-errors.txt" || true
@@ -400,4 +385,7 @@ EOF
           ls -la release/
 
       - name: Create release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
