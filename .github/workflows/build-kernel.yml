@@ -239,26 +239,21 @@ jobs:
           KERNEL_DIR="$WORKSPACE/android-kernel"
           KSU_DIR="$KERNEL_DIR/drivers/kernelsu"
 
-          if [ -f "$KSU_DIR/Kbuild" ]; then
-            sed -i '/selinux_hide\.o/d' "$KSU_DIR/Kbuild"
-            echo "Removed selinux_hide.o from Kbuild"
-          fi
-
-          if [ -f "$KSU_DIR/feature/selinux_hide.h" ]; then
+          # Replace selinux_hide.c with empty stubs (keeps Kbuild and declarations intact)
+          if [ -f "$KSU_DIR/feature/selinux_hide.c" ]; then
             printf '%s\n' \
-              '#ifndef __KSU_H_SELINUX_HIDE' \
-              '#define __KSU_H_SELINUX_HIDE' \
+              '/* Stubbed for kernel 4.4 – original uses __nocfi and newer APIs */' \
+              '#include "selinux_hide.h"' \
               '' \
-              '/* Disabled on kernel 4.4 - feature needs newer APIs */' \
-              'static inline void ksu_selinux_hide_init(void) {}' \
-              'static inline void ksu_selinux_hide_exit(void) {}' \
-              'static inline void ksu_selinux_hide_drop_backup_if_unused(void) {}' \
-              'static inline void ksu_selinux_hide_handle_second_stage(void) {}' \
-              'static inline void ksu_selinux_hide_handle_post_fs_data(void) {}' \
-              '' \
-              '#endif' \
-              > "$KSU_DIR/feature/selinux_hide.h"
-            echo "Stubbed selinux_hide.h for 4.4 compatibility"
+              'void ksu_selinux_hide_init(void) {}' \
+              'void ksu_selinux_hide_exit(void) {}' \
+              'void ksu_selinux_hide_drop_backup_if_unused(void) {}' \
+              'void ksu_selinux_hide_handle_second_stage(void) {}' \
+              'void ksu_selinux_hide_handle_post_fs_data(void) {}' \
+              > "$KSU_DIR/feature/selinux_hide.c"
+            echo "Replaced selinux_hide.c with empty stubs"
+          else
+            echo "selinux_hide.c not found - skipping"
           fi
 
           echo "selinux_hide disabled for legacy kernel."
