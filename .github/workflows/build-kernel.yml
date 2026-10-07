@@ -381,9 +381,42 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ksu-a8-${{ github.run_number }}
-          name: KernelSU-Next A8 2018 #${{ github.run_number }}
+          tag_name: ksu-a8-gsi-${{ github.run_number }}
+          name: Nameless + KernelSU-Next for A8 2018 (GSI / PixelOS) #${{ github.run_number }}
           files: release/*
-          generate_release_notes: true
           draft: false
           prerelease: false
+          body: |
+            ## Nameless + KernelSU-Next for Samsung Galaxy A8 2018 (jackpotlte)
+
+            **Device:** SM-A530F / jackpotlte (Exynos 7885)
+            **Kernel base:** Nameless 4.4.302-LTS
+            **Root:** KernelSU-Next (legacy branch, manual hooks)
+            **Target ROMs:** PixelOS GSI, Evolution X GSI, TrebleDroid, other arm64 AB GSIs (Android 12–14)
+
+            ### Changelog
+            - KernelSU-Next legacy integrated with manual syscall hooks (4.4)
+            - SELinux hide feature stubbed (incompatible APIs on 4.4)
+            - Legacy header shims (sched/*, compiler_types, ALIGN_DOWN)
+            - OverlayFS enabled for module support
+            - GSI-oriented config (SELinux bootparam + setenforce override)
+            - AnyKernel3 flashable zip for TWRP
+
+            ### Flash order (fresh install)
+            1. Flash official stock with Odin (full)
+            2. Unlock / TWRP
+            3. Flash treble vendor if needed (e.g. FileVen boot+vendor)
+            4. Flash **this AnyKernel3 zip** (or Nameless AOSP+Permissive first)
+            5. Flash PixelOS / GSI `system.img` to system
+            6. If boot stuck: flash Permissiver zip, wipe dalvik, reboot
+            7. Install KernelSU-Next Manager APK
+
+            ### Notes
+            - Always **Backup Boot** in TWRP before flashing
+            - GSI on A8 usually needs **SELinux Permissive**
+            - Previous pure KSU build bootlooped on some GSI setups; test carefully
+            - Magisk remains a more stable root option on GSI if this bootloops again
+
+            ### Files
+            - `AnyKernel3-*.zip` → flash in TWRP
+            - `Image` → raw kernel image
