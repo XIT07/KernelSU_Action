@@ -207,10 +207,6 @@ jobs:
 
       # --------------------------------------------------------------------
       # FIX 3: Patch KernelSU source and create compat headers for legacy kernel
-      #
-      # <linux/sched/signal.h>, <linux/sched/task.h>, <linux/sched/mm.h>
-      # and <linux/sched/user.h> were split out of <linux/sched.h> in Linux
-      # 4.11+ and do not exist in a 4.4 tree. Also add ALIGN_DOWN macro.
       # --------------------------------------------------------------------
       - name: Fix legacy kernel includes for KernelSU
         if: env.KSU_VARIANT != 'none'
@@ -247,6 +243,41 @@ jobs:
 
           echo "Legacy include fixes applied."
 
+      # --------------------------------------------------------------------
+      # FIX 4: Disable selinux_hide on 4.4 (uses __nocfi and APIs not present)
+      # --------------------------------------------------------------------
+      - name: Disable selinux_hide for legacy 4.4 kernel
+        if: env.KSU_VARIANT != 'none'
+        run: |
+          KERNEL_DIR="$WORKSPACE/android-kernel"
+          KSU_DIR="$KERNEL_DIR/drivers/kernelsu"
+
+          # Remove selinux_hide.o from Kbuild so it is not compiled
+          if [ -f "$KSU_DIR/Kbuild" ]; then
+            sed -i '/selinux_hide\.o/d' "$KSU_DIR/Kbuild"
+            echo "Removed selinux_hide.o from Kbuild"
+          fi
+
+          # Stub the public API so other files still link
+          if [ -f "$KSU_DIR/feature/selinux_hide.h" ]; then
+            cat > "$KSU_DIR/feature/selinux_hide.h" << 'EOF'
+#ifndef __KSU_H_SELINUX_HIDE
+#define __KSU_H_SELINUX_HIDE
+
+/* Disabled on kernel 4.4 – feature needs newer APIs (__nocfi, etc.) */
+static inline void ksu_selinux_hide_init(void) {}
+static inline void ksu_selinux_hide_exit(void) {}
+static inline void ksu_selinux_hide_drop_backup_if_unused(void) {}
+static inline void ksu_selinux_hide_handle_second_stage(void) {}
+static inline void ksu_selinux_hide_handle_post_fs_data(void) {}
+
+#endif
+EOF
+            echo "Stubbed selinux_hide.h for 4.4 compatibility"
+          fi
+
+          echo "selinux_hide disabled for legacy kernel."
+
       - name: Apply kernel patches
         run: bash scripts/patches.sh all
 
@@ -268,14 +299,12 @@ jobs:
         run: |
           echo "===== BUILD FAILED - Error summary ====="
           if [ -f "$WORKSPACE/build.log" ]; then
-            # Show last 80 lines + any lines containing error:
             echo "--- Last 80 lines of build.log ---"
             tail -n 80 "$WORKSPACE/build.log" || true
             echo ""
             echo "--- Lines containing 'error:' ---"
             grep -n -i "error:" "$WORKSPACE/build.log" | tail -n 40 || true
             echo ""
-            # Also save a short error-only file
             grep -n -i "error:\|Error:\|fatal error\|undefined reference\|No such file" "$WORKSPACE/build.log" > "$WORKSPACE/build-errors.txt" || true
             echo "Saved error lines to build-errors.txt"
           else
