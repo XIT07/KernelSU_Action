@@ -235,7 +235,7 @@ jobs:
           fi
 
           mkdir -p "$KERNEL_DIR/include/linux/sched"
-          for header in signal.h task.h mm.h; do
+          for header in signal.h task.h mm.h user.h; do
             if [ ! -f "$KERNEL_DIR/include/linux/sched/$header" ]; then
               echo "#include <linux/sched.h>" > "$KERNEL_DIR/include/linux/sched/$header"
               echo "Created compat header: include/linux/sched/$header"
