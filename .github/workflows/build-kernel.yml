@@ -239,10 +239,9 @@ jobs:
           KERNEL_DIR="$WORKSPACE/android-kernel"
           KSU_DIR="$KERNEL_DIR/drivers/kernelsu"
 
-          # Replace selinux_hide.c with empty stubs (keeps Kbuild and declarations intact)
           if [ -f "$KSU_DIR/feature/selinux_hide.c" ]; then
             printf '%s\n' \
-              '/* Stubbed for kernel 4.4 – original uses __nocfi and newer APIs */' \
+              '/* Stubbed for kernel 4.4 - original uses __nocfi and newer APIs */' \
               '#include "selinux_hide.h"' \
               '' \
               'void ksu_selinux_hide_init(void) {}' \
@@ -382,5 +381,9 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ksu-a8-${{ github.run_number }}
+          name: KernelSU-Next A8 2018 #${{ github.run_number }}
           files: release/*
           generate_release_notes: true
+          draft: false
+          prerelease: false
