@@ -208,12 +208,9 @@ jobs:
       # --------------------------------------------------------------------
       # FIX 3: Patch KernelSU source and create compat headers for legacy kernel
       #
-      # <linux/sched/signal.h>, <linux/sched/task.h> and <linux/sched/mm.h>
-      # were split out of <linux/sched.h> in Linux 4.11+ and do not exist in
-      # a 4.4 tree. The forwarding headers below make every KernelSU include
-      # resolve. The sed rewrite of setuid_hook.c is best-effort only: the
-      # file layout differs between KernelSU-Next refs, so a missing file is
-      # NOT an error.
+      # <linux/sched/signal.h>, <linux/sched/task.h>, <linux/sched/mm.h>
+      # and <linux/sched/user.h> were split out of <linux/sched.h> in Linux
+      # 4.11+ and do not exist in a 4.4 tree. Also add ALIGN_DOWN macro.
       # --------------------------------------------------------------------
       - name: Fix legacy kernel includes for KernelSU
         if: env.KSU_VARIANT != 'none'
@@ -241,7 +238,7 @@ jobs:
               echo "Created compat header: include/linux/sched/$header"
             fi
           done
-          
+
           # Add ALIGN_DOWN macro for kernels older than 4.11
           if ! grep -q "ALIGN_DOWN" "$KERNEL_DIR/include/linux/kernel.h"; then
             sed -i '/#define ALIGN(/a #define ALIGN_DOWN(x, a)\t__ALIGN_KERNEL((x) - ((a) - 1), (a))' "$KERNEL_DIR/include/linux/kernel.h"
@@ -261,12 +258,47 @@ jobs:
           max-size: 2G
 
       - name: Build kernel
-        run: bash scripts/build.sh all
+        id: build
+        run: |
+          set -o pipefail
+          bash scripts/build.sh all 2>&1 | tee "$WORKSPACE/build.log"
+
+      - name: Extract error summary
+        if: failure()
+        run: |
+          echo "===== BUILD FAILED - Error summary ====="
+          if [ -f "$WORKSPACE/build.log" ]; then
+            # Show last 80 lines + any lines containing error:
+            echo "--- Last 80 lines of build.log ---"
+            tail -n 80 "$WORKSPACE/build.log" || true
+            echo ""
+            echo "--- Lines containing 'error:' ---"
+            grep -n -i "error:" "$WORKSPACE/build.log" | tail -n 40 || true
+            echo ""
+            # Also save a short error-only file
+            grep -n -i "error:\|Error:\|fatal error\|undefined reference\|No such file" "$WORKSPACE/build.log" > "$WORKSPACE/build-errors.txt" || true
+            echo "Saved error lines to build-errors.txt"
+          else
+            echo "build.log not found"
+          fi
+
+      - name: Upload build log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_id }}
+          path: |
+            kernel_workspace/build.log
+            kernel_workspace/build-errors.txt
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Package artifacts
+        if: success()
         run: bash scripts/package.sh all
 
       - name: Export build metadata
+        if: success()
         id: meta
         run: |
           {
@@ -279,6 +311,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload kernel image
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_IMAGE_NAME }}${{ env.LOCALVERSION }}${{ env.UPLOADNAME }}-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
@@ -286,6 +319,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload AnyKernel3
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: AnyKernel3${{ env.LOCALVERSION }}${{ env.UPLOADNAME }}-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
@@ -293,14 +327,14 @@ jobs:
           if-no-files-found: error
 
       - name: Upload DTBO image
-        if: env.CHECK_DTBO_IS_OK == 'true'
+        if: success() && env.CHECK_DTBO_IS_OK == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dtbo-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
           path: kernel_workspace/android-kernel/out/arch/${{ env.ARCH }}/boot/dtbo.img
 
       - name: Upload boot image
-        if: env.MAKE_BOOT_IMAGE_IS_OK == 'true'
+        if: success() && env.MAKE_BOOT_IMAGE_IS_OK == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: boot${{ env.LOCALVERSION }}${{ env.UPLOADNAME }}-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
